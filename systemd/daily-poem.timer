@@ -1,0 +1,11 @@
+# Fire once a day at 06:00 local. `Persistent=true` catches up if the Pi was
+# asleep at the scheduled time (e-ink holds the last image while powered off).
+[Unit]
+Description=Run Daily Poem once each morning
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

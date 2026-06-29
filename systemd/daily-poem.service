@@ -1,0 +1,20 @@
+# Daily Poem — oneshot render+push. Pi only. See README "Deploy on the Pi".
+# Install: copy both unit files to /etc/systemd/system/, then
+#   sudo systemctl daemon-reload && sudo systemctl enable --now daily-poem.timer
+#
+# NOTION_TOKEN is read from the EnvironmentFile below (root-readable, mode 600,
+# never committed). Create it with:
+#   umask 077; printf 'NOTION_TOKEN=%s\n' '<your-token>' > /home/pi/daily-poem.env
+[Unit]
+Description=Daily Poem — render today's poem and push to the Inky panel
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/daily-poem
+Environment=DAILY_POEM_TARGET=inky
+Environment=DAILY_POEM_BACKEND=notion
+EnvironmentFile=/home/pi/daily-poem.env
+ExecStart=/home/pi/daily-poem/.venv/bin/python -m daily_poem render

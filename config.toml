@@ -1,0 +1,55 @@
+# Daily Poem — the single knob file. Everything tunable lives here.
+
+[page]
+# The poem is composed at this size (portrait). The panel is physically
+# 800x480 landscape; device/ rotates by `rotate_for_panel` before pushing.
+orientation = "portrait"     # portrait | landscape (informational; width/height drive it)
+width = 480
+height = 800
+rotate_for_panel = 270       # deg, clockwise, applied only on the Pi push. 270 = correct upright on the panel (90 was upside-down).
+
+[margins]
+# Pixels of the composed page. Bottom is a touch larger for optical balance.
+top = 70
+bottom = 86
+left = 60
+right = 60
+
+[type]
+body_font   = "fonts/Literata.ttf"
+italic_font = "fonts/Literata-Italic.ttf"
+body_weight  = 480           # Literata weight axis: 200-900. Nudged up from 400 for solidity on e-ink.
+title_weight = 560
+title_ratio  = 1.35          # title size = body size * this
+author_ratio = 0.66
+line_height  = 1.38          # leading as a multiple of font size (the airy default)
+line_height_min = 1.12       # long poems that won't fit at min_size tighten leading down to this before clipping
+stanza_gap   = 0.8           # extra blank space between stanzas, as a fraction of a line
+title_gap    = 1.4           # space below the title before the poem, in lines
+author_gap   = 1.6           # space above the attribution, in lines
+min_size = 17                # auto-fit floor; below this we warn rather than shrink further
+max_size = 46                # auto-fit ceiling
+align = "left"               # left = lines left-aligned inside a horizontally-centred block; center = each line centred
+valign = "center"            # optical | center | top. optical lifts short poems off dead-centre; long poems still fill the page.
+valign_bias = 0.45           # for valign=optical: where the block's centre sits as a fraction of the text area (0.5 = true centre).
+show_title  = true           # Render only GENUINE titles (one distinct from the first line). Index-convention titles (= the first line) are auto-suppressed. Set false to force titles off entirely.
+show_author = false          # Personal frame, own poems — no attribution line.
+
+[palette]
+# Sourced from the inky library (inky_e673.py, Spectra 6). Regenerate with
+# scripts/extract_palette.py if you bump the inky version.
+file = "daily_poem/render/palette.json"
+saturation = 0.5             # inky default. Lower -> whiter paper; higher -> more vivid but muddier whites.
+mode = "mono"                # mono = dither against black+white only (crisp text). full = all 6 inks (for colour companion art later).
+
+[source]
+backend = "local"            # local | notion. Notion needs NOTION_TOKEN in the env (never in config).
+dir  = "poems"
+poem = "poems/sample.md"     # local only: explicit file. Leave "" to deterministically pick one per day from `dir`.
+notion_database_id = ""   # your database id (or via DAILY_POEM_NOTION_DATABASE_ID env) — it is in the DB URL
+status_in = ["Complete", "Published"]                          # notion only: which poems are eligible for the daily rotation
+
+[output]
+preview_path = "out/preview.png"
+target = "preview"           # preview (save PNG) | inky (push to panel, Pi only).
+                             # Env DAILY_POEM_TARGET overrides this.

@@ -1,0 +1,7 @@
+# Cross-platform deps (Mac dev + Pi). Install in a venv:
+#   python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+Pillow>=10,<13
+
+# tomllib is stdlib on Python 3.11+ (no dependency needed).
+# The Inky hardware driver is intentionally NOT here — it pulls Pi-only
+# native deps (gpiod/spidev) that don't build on macOS. See requirements-pi.txt.

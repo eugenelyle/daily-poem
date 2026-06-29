@@ -1,0 +1,9 @@
+{
+  "_provenance": "Extracted from pimoroni/inky inky/inky_e673.py (Inky Impression 7.3\" 2025 Edition, Spectra 6 / E673). Regenerate with scripts/extract_palette.py after bumping inky. Do not hand-edit.",
+  "panel": "Inky Impression 7.3 (Spectra 6, E673)",
+  "resolution": [800, 480],
+  "names": ["black", "white", "yellow", "red", "blue", "green"],
+  "desaturated": [[0, 0, 0], [255, 255, 255], [255, 255, 0], [255, 0, 0], [0, 0, 255], [0, 255, 0]],
+  "saturated": [[0, 0, 0], [161, 164, 165], [208, 190, 71], [156, 72, 75], [61, 59, 94], [58, 91, 70]],
+  "hardware_remap": [0, 1, 2, 3, 5, 6]
+}
