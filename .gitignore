@@ -9,6 +9,9 @@ out/
 # OS
 .DS_Store
 
+# Secrets — never commit
+.env
+
 # Personal poems stay out of git — the live frame reads from Notion, and the
 # local source is only a fallback. Only the public-domain sample is tracked.
 /poems/*

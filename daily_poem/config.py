@@ -68,6 +68,19 @@ class Output:
 
 
 @dataclass(frozen=True)
+class CompanionConfig:
+    enabled: bool
+    model: str
+    distill_prompt: str
+    rank_prompt: str
+    sources: tuple[str, ...]
+    candidates_per_source: int
+    companion_image_path: str
+    companion_json_path: str
+    image_mud_threshold: float
+
+
+@dataclass(frozen=True)
 class Config:
     root: Path
     page: Page
@@ -76,6 +89,7 @@ class Config:
     palette: Palette
     source: Source
     output: Output
+    companion: CompanionConfig
 
     def path(self, rel: str) -> Path:
         """Resolve a config-relative path against the repo root."""
@@ -89,6 +103,7 @@ def load(config_path: str | os.PathLike = "config.toml") -> Config:
     with open(config_path, "rb") as fh:
         raw = tomllib.load(fh)
 
+    companion_raw = raw.get("companion", {})
     cfg = Config(
         root=root,
         page=Page(**raw["page"]),
@@ -97,6 +112,17 @@ def load(config_path: str | os.PathLike = "config.toml") -> Config:
         palette=Palette(**raw["palette"]),
         source=Source(**raw["source"]),
         output=Output(**raw["output"]),
+        companion=CompanionConfig(
+            enabled=companion_raw.get("enabled", False),
+            model=companion_raw.get("model", "claude-sonnet-4-6"),
+            distill_prompt=companion_raw.get("distill_prompt", "prompts/distill.md"),
+            rank_prompt=companion_raw.get("rank_prompt", "prompts/rank.md"),
+            sources=tuple(companion_raw.get("sources", [])),
+            candidates_per_source=companion_raw.get("candidates_per_source", 3),
+            companion_image_path=companion_raw.get("companion_image_path", "out/companion.png"),
+            companion_json_path=companion_raw.get("companion_json_path", "out/companion.json"),
+            image_mud_threshold=companion_raw.get("image_mud_threshold", 0.90),
+        ),
     )
 
     # Env overrides for the operational flags that differ Mac (dev) vs Pi (deploy),
