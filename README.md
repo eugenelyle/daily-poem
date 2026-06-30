@@ -190,6 +190,48 @@ The unit assumes the repo at `/home/pi/daily-poem` and user `pi`; edit it if
 you deploy elsewhere. e-ink holds the last image with no power, so a missed run just
 means yesterday's poem lingers.
 
+## The companion (page 2)
+
+A second page — a found image or text, chosen by an LLM to *deepen* the day's
+poem, with a one-line "lens" beneath it — is selected overnight and revealed on a
+button press. The selection pipeline (`distill → gather → rank+lens → render gate
+→ emit`) lives in `daily_poem/companion/`; the editorial reasoning behind it is in
+`companion-discovery-handoff.md`.
+
+Iterate on the Mac (runs the full pipeline against the live sources, no Pi needed):
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...        # or put it in .env at the repo root
+./.venv/bin/python -m daily_poem companion --poem poems/your-poem.md --dry-run
+```
+
+`--dry-run` prints the buried question, oblique angles, candidate pool, ranked
+candidates with their lenses, and the render-gate outcome — without writing files.
+Drop `--dry-run` to save `out/companion.png` + `out/companion.json`.
+
+**Schedule it on the Pi.** The companion needs `ANTHROPIC_API_KEY` on top of the
+`NOTION_TOKEN` the render already uses — append it to the same root-only env file:
+
+```bash
+umask 077; printf 'ANTHROPIC_API_KEY=%s\n' '<your-key>' >> /home/pi/daily-poem.env
+```
+
+Then install the overnight timer (fires at 01:00, five hours before the render, so
+the companion is ready by morning):
+
+```bash
+sudo cp systemd/daily-companion.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start daily-companion.service     # one-off: prove the pipeline runs end-to-end
+sudo systemctl enable --now daily-companion.timer
+systemctl list-timers daily-companion.timer      # confirm next run
+```
+
+The companion job only *writes* `out/companion.{png,json}` — it never touches the
+panel. Pushing page 2 to the Inky on a button press is the next piece (the HTTP
+trigger server). A failed or empty run is harmless: the morning poem is unaffected,
+and a blank companion simply means no second page that day.
+
 ## Status
 
 **Deployed and live.** A Raspberry Pi 4 (Debian 13) renders a poem from the Notion
@@ -201,4 +243,8 @@ collection (filtered to Complete/Published) and pushes it to the Inky Impression
   vs. pure black/white, `body_weight=480`) were tuned on the real panel.
 - Notion source is live; the token lives in a root-only env file on the Pi, never
   committed. Deploy updates with `git pull` on the Pi (read-only deploy key).
-- companion is a no-op stub — the editorial layer drops into that seam next.
+- **Companion (page 2) — pipeline built, scheduling ready.** The
+  `distill → gather → rank+lens → render gate → emit` chain runs end-to-end and an
+  overnight timer (01:00) selects the day's companion. Two pieces remain: tuning the
+  image render gate against real candidates, and the HTTP button server that pushes
+  page 2 to the panel on demand. See `companion-discovery-handoff.md` §9b.
