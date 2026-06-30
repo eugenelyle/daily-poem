@@ -78,6 +78,8 @@ class CompanionConfig:
     companion_image_path: str
     companion_json_path: str
     image_mud_threshold: float
+    server_host: str
+    server_port: int
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,8 @@ def load(config_path: str | os.PathLike = "config.toml") -> Config:
             companion_image_path=companion_raw.get("companion_image_path", "out/companion.png"),
             companion_json_path=companion_raw.get("companion_json_path", "out/companion.json"),
             image_mud_threshold=companion_raw.get("image_mud_threshold", 0.90),
+            server_host=companion_raw.get("server_host", "0.0.0.0"),
+            server_port=companion_raw.get("server_port", 8080),
         ),
     )
 

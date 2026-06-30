@@ -8,7 +8,6 @@ Output is a 'P'-mode image already quantized to the panel's inks (see palette.py
 """
 from __future__ import annotations
 
-import textwrap
 from dataclasses import dataclass
 
 from PIL import Image, ImageDraw
@@ -16,7 +15,7 @@ from PIL import Image, ImageDraw
 from ..config import Config
 from ..content.base import Poem
 from . import palette as pal
-from .layout import Layout, layout_poem, load_font
+from .layout import Layout, _wrap, layout_poem, load_font
 
 INK_BLACK = (0, 0, 0)
 PAPER = (255, 255, 255)
@@ -46,8 +45,12 @@ def compose(poem: Poem, cfg: Config, companion=None) -> Render:
     return Render(canonical=canonical, layout=layout, panel=panel)
 
 
-def compose_companion(payload: dict, cfg: Config) -> Image.Image:
-    """Render the companion page (page 2). Returns a preview RGB image.
+def compose_companion(payload: dict, cfg: Config) -> Render:
+    """Render the companion page (page 2) as a panel-ready Render.
+
+    Flows through the same device seam as the poem page: output() previews it on
+    the Mac or pushes (with rotation) to the Inky on the Pi. Quantized once here
+    with the full 6-ink palette so colour art reaches the panel.
 
     payload shapes:
       {"type": "image",    "lens": ..., "attribution": ..., "image_path": ...}
@@ -71,7 +74,8 @@ def compose_companion(payload: dict, cfg: Config) -> Image.Image:
         _draw_question_companion(draw, payload, cfg, w, h, m)
 
     canonical = pal.quantize(img, panel, cfg.palette.saturation, mode="full")
-    return pal.to_preview_rgb(canonical, panel, cfg.palette.saturation)
+    empty = Layout(items=[], body_size=0, overflow=False, warnings=[])
+    return Render(canonical=canonical, layout=empty, panel=panel)
 
 
 # ---------------------------------------------------------------------------
@@ -79,82 +83,112 @@ def compose_companion(payload: dict, cfg: Config) -> Image.Image:
 # ---------------------------------------------------------------------------
 
 def _draw_image_companion(img, draw, payload, cfg, w, h, m) -> None:
-    """Full-bleed image, lens + attribution at the bottom."""
+    """Image filling the page above a bottom band of lens + attribution."""
     from pathlib import Path
+
+    text_w = w - m.left - m.right
+    lens_lines, attr_lines, lens_lh, attr_lh = _bottom_lines(payload, cfg, text_w)
+    band = _band_height(lens_lines, attr_lines, lens_lh, attr_lh, m.bottom)
+
+    art_h = h - band
     image_path = payload.get("image_path", "")
     if image_path and Path(image_path).exists():
-        art = Image.open(image_path).convert("RGB")
-        # Reserve bottom band for lens + attribution
-        bottom_band = m.bottom + _LENS_SIZE + 8 + _ATTR_SIZE + 8
-        art_h = h - bottom_band
-        art = art.resize((w, art_h), Image.LANCZOS)
-        img.paste(art, (0, 0))
+        art = _fit(Image.open(image_path).convert("RGB"), w, art_h)
+        img.paste(art, ((w - art.width) // 2, (art_h - art.height) // 2))
     else:
-        # Fallback: grey placeholder
-        draw.rectangle([0, 0, w, h - m.bottom - _LENS_SIZE - _ATTR_SIZE - 20],
-                       fill=(180, 180, 180))
+        draw.rectangle([0, 0, w, art_h], fill=(180, 180, 180))
 
-    _draw_bottom_text(draw, payload, cfg, w, h, m)
+    _draw_band(draw, lens_lines, attr_lines, lens_lh, attr_lh, h - band, m)
 
 
 def _draw_text_companion(draw, payload, cfg, w, h, m) -> None:
-    """Attribution line, excerpt text, lens at bottom."""
+    """Attribution at top, excerpt body, lens band at the bottom."""
     t = cfg.type
     text = payload.get("text", "")
     attribution = payload.get("attribution", "")
+    text_w = w - m.left - m.right
 
-    # Attribution at top
+    lens_lines, attr_lines, lens_lh, attr_lh = _bottom_lines(payload, cfg, text_w)
+    band = _band_height(lens_lines, attr_lines, lens_lh, attr_lh, m.bottom)
+
     if attribution:
         attr_font = load_font(cfg.path(t.italic_font).as_posix(), _ATTR_SIZE, t.body_weight)
-        draw.text((m.left, m.top), attribution[:80], font=attr_font, fill=INK_BLACK, anchor="la")
+        for ln in _wrap(attribution, attr_font, text_w):
+            draw.text((m.left, m.top), ln, font=attr_font, fill=INK_BLACK, anchor="la")
+            break  # one line at top is enough
 
-    # Excerpt body
     body_font = load_font(cfg.path(t.body_font).as_posix(), 22, t.body_weight)
-    text_w = w - m.left - m.right
+    body_lh = 30
     y = m.top + _ATTR_SIZE + 20
-    for line in text.splitlines():
-        wrapped = textwrap.wrap(line or " ", width=max(1, int(text_w / 12)))
-        for wl in wrapped:
-            if y > h - m.bottom - _LENS_SIZE - 40:
+    floor = h - band - body_lh
+    for raw in text.splitlines():
+        for wl in _wrap(raw or " ", body_font, text_w):
+            if y > floor:
                 break
             draw.text((m.left, y), wl, font=body_font, fill=INK_BLACK, anchor="la")
-            y += 30
-        if y > h - m.bottom - _LENS_SIZE - 40:
+            y += body_lh
+        if y > floor:
             break
 
-    _draw_bottom_text(draw, payload, cfg, w, h, m)
+    _draw_band(draw, lens_lines, attr_lines, lens_lh, attr_lh, h - band, m)
 
 
 def _draw_question_companion(draw, payload, cfg, w, h, m) -> None:
-    """Buried question alone — large type, vertically centered."""
+    """Buried question alone — large italic type, vertically centered."""
     t = cfg.type
     question = payload.get("buried_question", "")
     font = load_font(cfg.path(t.italic_font).as_posix(), _QUESTION_SIZE, t.title_weight)
     text_w = w - m.left - m.right
 
-    lines = textwrap.wrap(question, width=max(1, int(text_w / 14)))
-    total_h = len(lines) * (_QUESTION_SIZE + 10)
+    lines = _wrap(question, font, text_w)
+    line_h = _QUESTION_SIZE + 10
+    total_h = len(lines) * line_h
     y = m.top + max(0, (h - m.top - m.bottom - total_h) // 2)
     for line in lines:
         lw = round(font.getlength(line))
         x = m.left + (text_w - lw) // 2
         draw.text((x, y), line, font=font, fill=INK_BLACK, anchor="la")
-        y += _QUESTION_SIZE + 10
+        y += line_h
 
 
-def _draw_bottom_text(draw, payload, cfg, w, h, m) -> None:
-    """Lens sentence + attribution in the bottom margin."""
+# ---------------------------------------------------------------------------
+# Shared helpers for the bottom band (lens + attribution)
+# ---------------------------------------------------------------------------
+
+def _bottom_lines(payload, cfg, text_w):
+    """Wrap lens + attribution to the content width; return lines and line-heights."""
     t = cfg.type
     lens = payload.get("lens", "")
     attribution = payload.get("attribution", "")
-
     lens_font = load_font(cfg.path(t.italic_font).as_posix(), _LENS_SIZE, t.body_weight)
     attr_font = load_font(cfg.path(t.body_font).as_posix(), _ATTR_SIZE, t.body_weight)
 
-    attr_y = h - m.bottom
-    lens_y = attr_y - _LENS_SIZE - 8
+    lens_lines = [(ln, lens_font) for ln in _wrap(lens, lens_font, text_w)] if lens else []
+    attr_lines = [(ln, attr_font) for ln in _wrap(attribution, attr_font, text_w)] if attribution else []
+    return lens_lines, attr_lines, round(_LENS_SIZE * 1.3), round(_ATTR_SIZE * 1.3)
 
-    if attribution:
-        draw.text((m.left, attr_y), attribution[:100], font=attr_font, fill=INK_BLACK, anchor="la")
-    if lens:
-        draw.text((m.left, lens_y), lens[:120], font=lens_font, fill=INK_BLACK, anchor="la")
+
+def _band_height(lens_lines, attr_lines, lens_lh, attr_lh, bottom_margin) -> int:
+    h = len(lens_lines) * lens_lh
+    if attr_lines:
+        h += 8 + len(attr_lines) * attr_lh
+    return h + bottom_margin + 12  # 12px breathing room above the band
+
+
+def _draw_band(draw, lens_lines, attr_lines, lens_lh, attr_lh, band_top, m) -> None:
+    y = band_top + 12
+    for ln, font in lens_lines:
+        draw.text((m.left, y), ln, font=font, fill=INK_BLACK, anchor="la")
+        y += lens_lh
+    if attr_lines:
+        y += 8
+        for ln, font in attr_lines:
+            draw.text((m.left, y), ln, font=font, fill=INK_BLACK, anchor="la")
+            y += attr_lh
+
+
+def _fit(art: Image.Image, box_w: int, box_h: int) -> Image.Image:
+    """Scale to fit within the box, preserving aspect ratio."""
+    aw, ah = art.size
+    scale = min(box_w / aw, box_h / ah)
+    return art.resize((max(1, round(aw * scale)), max(1, round(ah * scale))), Image.LANCZOS)

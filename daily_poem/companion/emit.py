@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 
 from ..config import Config
-from ..render import palette as pal
 from .gate import ChosenCompanion
 
 
@@ -29,10 +28,8 @@ def emit(companion: ChosenCompanion | None, buried_question: str, cfg: Config) -
             "buried_question": buried_question,
         }
     elif companion.kind == "image":
-        # Save palette-quantized image as PNG via preview recolour
-        panel = pal.Spectra6.load(cfg.path(cfg.palette.file))
-        rgb = pal.to_preview_rgb(companion.image, panel, cfg.palette.saturation)
-        rgb.save(img_path)
+        # Save the clean RGB art; page 2 quantizes once when it's composed.
+        companion.image.save(img_path)
         payload = {
             "type": "image",
             "buried_question": companion.buried_question,

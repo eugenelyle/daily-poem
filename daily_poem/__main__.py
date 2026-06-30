@@ -1,12 +1,15 @@
 """CLI entrypoint.
 
 Commands:
-  python -m daily_poem render      — pick poem, typeset, save preview or push to Inky
-  python -m daily_poem companion   — run companion pipeline, save out/companion.{png,json}
+  python -m daily_poem render          — pick poem, typeset, save preview or push to Inky
+  python -m daily_poem companion       — run companion pipeline, save out/companion.{png,json}
+  python -m daily_poem show-companion  — compose the saved companion as page 2 and preview/push
+  python -m daily_poem serve           — run the button server (page 2 on demand)
 """
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from datetime import date
@@ -21,12 +24,15 @@ from .device import output
 from .render.compose import compose
 
 
-def _render(args) -> int:
-    cfg = config_mod.load(args.config)
+def _apply_target(cfg, target):
+    if not target:
+        return cfg
+    return config_mod.Config(**{**cfg.__dict__,
+                                "output": config_mod.Output(cfg.output.preview_path, target)})
 
-    if args.target:
-        cfg = config_mod.Config(**{**cfg.__dict__,
-                                   "output": config_mod.Output(cfg.output.preview_path, args.target)})
+
+def _render(args) -> int:
+    cfg = _apply_target(config_mod.load(args.config), args.target)
 
     if args.poem:
         source = LocalSource(cfg.path(cfg.source.dir), cfg.path(args.poem))
@@ -73,6 +79,42 @@ def _companion(args) -> int:
     return 0
 
 
+def _show_companion(args) -> int:
+    """Compose the already-selected companion as page 2 and preview/push it.
+
+    Reads out/companion.json (written by the overnight `companion` run). Cheap and
+    offline — this is what the button press triggers.
+    """
+    from .render.compose import compose_companion
+
+    cfg = _apply_target(config_mod.load(args.config), args.target)
+
+    json_path = cfg.path(cfg.companion.companion_json_path)
+    if not json_path.exists():
+        print(f"no companion selected yet (missing {json_path})", file=sys.stderr)
+        return 1
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+
+    render = compose_companion(payload, cfg)
+
+    if cfg.output.target == "preview":
+        from .device.preview import save
+        out = save(render, cfg, out_path=cfg.path("out/companion-page2.png"))
+        print(f'companion page 2 ({payload.get("type")}) -> {out}')
+    else:
+        output(render, cfg)
+        print(f'companion page 2 ({payload.get("type")}) pushed to Inky')
+    return 0
+
+
+def _serve(args) -> int:
+    from .companion.server import serve
+
+    cfg = config_mod.load(args.config)
+    serve(cfg, host=args.host, port=args.port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -97,6 +139,17 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--dry-run", action="store_true",
                    help="Print pipeline state without writing files")
     c.set_defaults(func=_companion)
+
+    s = sub.add_parser("show-companion", help="Compose the saved companion as page 2")
+    s.add_argument("--config", default="config.toml")
+    s.add_argument("--target", choices=["preview", "inky"], help="Override output target")
+    s.set_defaults(func=_show_companion)
+
+    v = sub.add_parser("serve", help="Run the button server (page 2 on demand)")
+    v.add_argument("--config", default="config.toml")
+    v.add_argument("--host", help="Bind address (default from config)")
+    v.add_argument("--port", type=int, help="Bind port (default from config)")
+    v.set_defaults(func=_serve)
 
     args = parser.parse_args(argv)
     return args.func(args)

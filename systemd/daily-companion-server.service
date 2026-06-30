@@ -1,0 +1,34 @@
+# Daily Poem — button server (page 2 on demand). Pi only.
+# A long-running service (not a timer): it listens on port 8080 for the iPhone
+# Shortcut and flips the panel between the poem and its companion.
+#   POST /companion  -> push the day's companion (page 2)
+#   POST /poem       -> re-render today's poem (page 1) and push it
+#
+# Install:
+#   sudo cp systemd/daily-companion-server.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now daily-companion-server.service
+#   systemctl status daily-companion-server.service   # confirm it's listening
+#
+# /poem re-renders from Notion, so it needs NOTION_TOKEN + the notion backend
+# (same env file as the render/companion units). /companion only reads the files
+# the overnight job already wrote, so it needs no secrets.
+#
+# Local-network only — there is no auth on this port. Do not forward it past the LAN.
+[Unit]
+Description=Daily Poem — companion button server (page 2 on demand)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/daily-poem
+Environment=DAILY_POEM_BACKEND=notion
+EnvironmentFile=/home/pi/daily-poem.env
+ExecStart=/home/pi/daily-poem/.venv/bin/python -m daily_poem serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -228,9 +228,46 @@ systemctl list-timers daily-companion.timer      # confirm next run
 ```
 
 The companion job only *writes* `out/companion.{png,json}` — it never touches the
-panel. Pushing page 2 to the Inky on a button press is the next piece (the HTTP
-trigger server). A failed or empty run is harmless: the morning poem is unaffected,
-and a blank companion simply means no second page that day.
+panel. A failed or empty run is harmless: the morning poem is unaffected, and a
+blank companion simply means no second page that day.
+
+### The button (page 2 on the panel)
+
+Page 2 is revealed on demand by a small HTTP server. It flips the panel between the
+poem and its companion:
+
+```
+GET  /health     -> {"status": "ok"}            connectivity check
+POST /companion  -> push the day's companion (page 2) to the Inky
+POST /poem       -> re-render today's poem (page 1) and push it
+```
+
+`/companion` just composes what the overnight job already chose (cheap, offline);
+`/poem` returns the frame to the poem. A lock serializes pushes, so a second tap
+mid-refresh gets a `409` instead of colliding on the panel. Try it on the Mac
+(actions fail at the hardware push, which only exists on the Pi, but `--target
+preview` exercises the compositing):
+
+```bash
+./.venv/bin/python -m daily_poem show-companion --target preview   # -> out/companion-page2.png
+./.venv/bin/python -m daily_poem serve --port 8099                 # then curl http://127.0.0.1:8099/health
+```
+
+On the Pi, install it as a boot service (port and bind address are in `config.toml`
+under `[companion]`):
+
+```bash
+sudo cp systemd/daily-companion-server.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now daily-companion-server.service
+systemctl status daily-companion-server.service     # confirm it's listening on :8080
+```
+
+**iPhone Shortcut.** Create a Shortcut with one action — *Get Contents of URL* —
+pointed at `http://<pi-host>:8080/companion`, method `POST`. Add it to the Home
+Screen for a one-tap reveal; a second Shortcut to `/poem` returns to the poem. The
+server has **no auth and is for the home network only** — don't forward the port
+past your LAN.
 
 ## Status
 
@@ -243,8 +280,10 @@ collection (filtered to Complete/Published) and pushes it to the Inky Impression
   vs. pure black/white, `body_weight=480`) were tuned on the real panel.
 - Notion source is live; the token lives in a root-only env file on the Pi, never
   committed. Deploy updates with `git pull` on the Pi (read-only deploy key).
-- **Companion (page 2) — pipeline built, scheduling ready.** The
-  `distill → gather → rank+lens → render gate → emit` chain runs end-to-end and an
-  overnight timer (01:00) selects the day's companion. Two pieces remain: tuning the
-  image render gate against real candidates, and the HTTP button server that pushes
-  page 2 to the panel on demand. See `companion-discovery-handoff.md` §9b.
+- **Companion (page 2) — built end-to-end; awaiting hardware tuning.** The
+  `distill → gather → rank+lens → render gate → emit` chain runs and an overnight
+  timer (01:00) selects the day's companion; the button server pushes page 2 to the
+  panel on an iPhone-Shortcut tap. The full chain is verified on the Mac (page 2
+  composites correctly; the server dispatches; only the Pi-only Inky push is
+  untested off-hardware). Remaining: tune the image render gate against real
+  dithered output on the panel. See `companion-discovery-handoff.md` §9b.

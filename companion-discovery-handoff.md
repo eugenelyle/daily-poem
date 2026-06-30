@@ -195,7 +195,16 @@ Keep to the existing project conventions: Python, lean deps, venv, config-driven
 
 2. **Candidate pool is thin and image-only in practice.** Typical run returns ~6 candidates, all from the Met + AIC; PoetryDB / Wikipedia / Wiktionary / Rijksmuseum frequently return 0 because the oblique angles are too abstract to match literal search. This is the spec's "real skill is translation" problem (§5). Likely fix: have distill emit *searchable* terms alongside the poetic angles, and bias image queries toward prints/woodcuts (which dither cleanly) over oil paintings.
 
-**Still to build:** Milestone 2 (systemd overnight ~1 AM run on the Pi, `ANTHROPIC_API_KEY` into the Pi env file) and Milestone 3 (HTTP button server: `POST /companion` renders page 2 + pushes to Inky; iPhone Shortcut trigger).
+**Milestone 2 — DONE.** `systemd/daily-companion.{service,timer}` run the pipeline at 01:00 and write `out/companion.{png,json}`. Needs `ANTHROPIC_API_KEY` appended to `/home/pi/daily-poem.env`. README documents the Pi install.
+
+**Milestone 3 — DONE (Mac-verified; Pi push untested off-hardware).** `companion/server.py` is a stdlib HTTP button server: `GET /health`, `POST /companion` (compose saved page 2 → push), `POST /poem` (re-render poem → push). Pushes serialized by a lock (409 if busy); each action shells out to the CLI (`show-companion` / `render`) so the long-lived server holds no Inky handle. New CLI commands: `show-companion` (compose the saved companion as page 2, preview or push) and `serve`. `systemd/daily-companion-server.service` runs it on boot. iPhone Shortcut → `POST http://<pi>:8080/companion`. Config: `[companion] server_host/server_port`.
+
+*Render-quality fixes made along the way:* `gate` now keeps clean RGB (resized to 800px) and quantizes only a probe copy for the mud test, so page 2 quantizes exactly **once** (no double-dither); `compose_companion` returns a `Render` and flows through the existing `output()` device seam; page-2 text (lens + attribution) wraps to width via `render.layout._wrap` and the image fits preserving aspect ratio. Verified: `out/companion-page2.png` lays out correctly.
+
+**Still to build / open:**
+- **Render-gate calibration** (the deferred mud-detector rework) — best done against real dithered output on the panel, since the Mac preview only approximates Spectra-6. Even bright painterly work (Bruegel) shows heavy red/green dither noise in the preview; the panel is the honest test.
+- **Candidate-pool thinness** — distill should emit *searchable* terms alongside poetic angles; bias image queries toward prints/woodcuts.
+- `companion/base.py` + `noop.py` are now orphaned (pipeline uses `ChosenCompanion`); harmless, worth deleting in a cleanup pass.
 
 ---
 

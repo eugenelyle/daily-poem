@@ -30,7 +30,8 @@ class ChosenCompanion:
     buried_question: str
     lens: str
     text: str = ""         # text content (text companions)
-    image: Image.Image | None = None  # already quantized (image companions)
+    image: Image.Image | None = None  # clean RGB art (image companions); the page
+                                       # is quantized ONCE when page 2 is composed
     source_name: str = ""
     attribution: str = ""
     url: str = ""
@@ -76,7 +77,11 @@ def gate(rank_result: RankResult, candidates: list[Candidate], cfg: Config) -> C
 
 
 def _try_image(c: Candidate, panel: pal.Spectra6, cfg: Config) -> Image.Image | None:
-    """Download, quantize, and quality-check. Returns canonical image or None."""
+    """Download and quality-check. Returns clean (resized) RGB art, or None.
+
+    The mud check quantizes a copy to judge how the art will dither; the returned
+    image stays RGB so the page-2 composition quantizes exactly once.
+    """
     try:
         resp = requests.get(c.image_url, timeout=_TIMEOUT,
                             headers={"User-Agent": "daily-poem/1.0"})
@@ -86,14 +91,22 @@ def _try_image(c: Candidate, panel: pal.Spectra6, cfg: Config) -> Image.Image | 
         log.warning("image download failed for %s: %s", c.id, exc)
         return None
 
-    # Quantize with full 6-ink palette (companion page uses mode=full)
-    canonical = pal.quantize(rgb, panel, cfg.palette.saturation, mode="full")
-
-    if _is_muddy(canonical, cfg.companion.image_mud_threshold):
+    # Quantize a copy with the full 6-ink palette ONLY to judge mud — not kept.
+    probe = pal.quantize(rgb, panel, cfg.palette.saturation, mode="full")
+    if _is_muddy(probe, cfg.companion.image_mud_threshold):
         log.debug("image %s rejected: muddy (black+white dominant)", c.id)
         return None
 
-    return canonical
+    return _resize_max(rgb, 800)
+
+
+def _resize_max(img: Image.Image, max_edge: int) -> Image.Image:
+    """Downscale so the longest edge is <= max_edge (keeps companion.png modest)."""
+    w, h = img.size
+    if max(w, h) <= max_edge:
+        return img
+    scale = max_edge / max(w, h)
+    return img.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
 
 
 def _is_muddy(canonical: Image.Image, threshold: float) -> bool:
