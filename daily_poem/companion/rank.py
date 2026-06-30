@@ -6,7 +6,6 @@ its own lens — no second API call needed.
 """
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 
@@ -14,7 +13,7 @@ import anthropic
 
 from ..config import Config
 from ..content.base import Poem
-from .distill import DistillResult, _format_poem
+from .distill import DistillResult, _format_poem, parse_json_response
 from .gather import Candidate
 
 
@@ -50,16 +49,12 @@ def rank(poem: Poem, distill: DistillResult, candidates: list[Candidate], cfg: C
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     msg = client.messages.create(
         model=cfg.companion.model,
-        max_tokens=2048,
+        max_tokens=4096,  # buried question + a lens per candidate for the whole pool
         system=system_prompt,
         messages=[{"role": "user", "content": user_message}],
     )
 
-    raw = msg.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-
-    data = json.loads(raw)
+    data = parse_json_response(msg, where="rank")
     ranked = [
         RankedCandidate(id=r["id"], type=r["type"], source=r["source"], lens=r["lens"])
         for r in data.get("ranked", [])
