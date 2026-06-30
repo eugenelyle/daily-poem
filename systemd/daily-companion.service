@@ -1,18 +1,16 @@
-# Daily Poem — overnight companion selection. Pi only. See README "The companion (page 2)".
-# Install: copy both unit files to /etc/systemd/system/, then
-#   sudo systemctl daemon-reload && sudo systemctl enable --now daily-companion.timer
+# Daily Poem — companion selection (page 2). Pi only. See README "The companion (page 2)".
+# NOT timer-driven: it is pulled in by daily-poem.service (Wants=) and ordered
+# After= it, so each day's poem is selected and rendered first, then this job pairs
+# a companion to that exact poem and writes out/companion.{png,json}. It does NOT
+# push to the panel — the button server (page 2) reads those files on demand.
 #
-# Runs the companion pipeline for TODAY's poem (same Notion source + deterministic
-# date pick as the 06:00 render, so the companion matches the morning's poem) and
-# writes out/companion.{png,json}. It does NOT push to the panel — the button
-# server (page 2) reads those files on demand.
-#
-# Needs ANTHROPIC_API_KEY in addition to NOTION_TOKEN. Add it to the same env file:
+# Installed alongside the other units; needs no separate enable (the poem timer
+# drives it). Needs ANTHROPIC_API_KEY + NOTION_TOKEN in /home/pi/daily-poem.env:
 #   umask 077; printf 'ANTHROPIC_API_KEY=%s\n' '<your-key>' >> /home/pi/daily-poem.env
 [Unit]
 Description=Daily Poem — select the companion for today's poem (page 2)
 Wants=network-online.target
-After=network-online.target
+After=network-online.target daily-poem.service
 
 [Service]
 Type=oneshot

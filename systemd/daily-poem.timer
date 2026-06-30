@@ -1,10 +1,13 @@
-# Fire once a day at 06:00 local. `Persistent=true` catches up if the Pi was
-# asleep at the scheduled time (e-ink holds the last image while powered off).
+# Fire once a day at 01:00 local. This single timer drives the whole daily
+# turnover: daily-poem.service renders the poem AND pulls in the companion
+# selection right after it (see its Wants= / the companion's After=), so the poem
+# is always chosen first and the companion is paired to that exact poem.
+# `Persistent=true` catches up if the Pi was asleep (e-ink holds the last image).
 [Unit]
-Description=Run Daily Poem once each morning
+Description=Run the Daily Poem turnover once a day (poem, then companion)
 
 [Timer]
-OnCalendar=*-*-* 06:00:00
+OnCalendar=*-*-* 01:00:00
 Persistent=true
 
 [Install]

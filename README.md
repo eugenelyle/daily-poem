@@ -186,9 +186,12 @@ sudo systemctl enable --now daily-poem.timer
 systemctl list-timers daily-poem.timer         # confirm next run
 ```
 
-The unit assumes the repo at `/home/pi/daily-poem` and user `pi`; edit it if
-you deploy elsewhere. e-ink holds the last image with no power, so a missed run just
-means yesterday's poem lingers.
+The timer fires once a day at **01:00** and is the whole daily turnover: it renders
+the poem, then (via `Wants=daily-companion.service`) selects the companion right
+after, so the poem is always chosen first and the companion is paired to it. Install
+the companion service too (next section) for that chain to fire. The unit assumes the
+repo at `/home/pi/daily-poem` and user `pi`; edit it if you deploy elsewhere. e-ink
+holds the last image with no power, so a missed run just means yesterday's poem lingers.
 
 ## The companion (page 2)
 
@@ -216,20 +219,21 @@ Drop `--dry-run` to save `out/companion.png` + `out/companion.json`.
 umask 077; printf 'ANTHROPIC_API_KEY=%s\n' '<your-key>' >> /home/pi/daily-poem.env
 ```
 
-Then install the overnight timer (fires at 01:00, five hours before the render, so
-the companion is ready by morning):
+The companion is **not on its own timer** — it's chained to the poem: `daily-poem.service`
+pulls it in (`Wants=`) and it runs `After=` the render, so the poem is always selected
+first and the companion is paired to that exact poem. Just install the service (no
+enable needed — the 01:00 poem timer drives it):
 
 ```bash
-sudo cp systemd/daily-companion.{service,timer} /etc/systemd/system/
+sudo cp systemd/daily-companion.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl start daily-companion.service     # one-off: prove the pipeline runs end-to-end
-sudo systemctl enable --now daily-companion.timer
-systemctl list-timers daily-companion.timer      # confirm next run
+# (no enable/timer — daily-poem.timer triggers the poem, which pulls this in after it)
 ```
 
 The companion job only *writes* `out/companion.{png,json}` — it never touches the
-panel. A failed or empty run is harmless: the morning poem is unaffected, and a
-blank companion simply means no second page that day.
+panel. A failed or empty run is harmless: the poem is unaffected, and a blank
+companion simply means no second page that day.
 
 ### The button (page 2 on the panel)
 
@@ -273,7 +277,8 @@ past your LAN.
 
 **Deployed and live.** A Raspberry Pi 4 (Debian 13) renders a poem from the Notion
 collection (filtered to Complete/Published) and pushes it to the Inky Impression
-7.3" each morning at 06:00 via a systemd timer.
+7.3" once a day at 01:00 via a systemd timer, then selects that poem's companion in
+the same chained run.
 
 - `content (local + notion) → render → device (preview | inky)` — the full chain
   runs on hardware; orientation (`rotate_for_panel=270`) and contrast (mono dither

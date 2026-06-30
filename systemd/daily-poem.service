@@ -1,5 +1,8 @@
 # Daily Poem — oneshot render+push. Pi only. See README "Deploy on the Pi".
-# Install: copy both unit files to /etc/systemd/system/, then
+# This is the daily turnover entrypoint: the timer starts it, it renders the poem,
+# and via Wants= below it pulls in the companion selection right after (ordered by
+# the companion's After=daily-poem.service), so the poem is always chosen first.
+# Install: copy the unit files to /etc/systemd/system/, then
 #   sudo systemctl daemon-reload && sudo systemctl enable --now daily-poem.timer
 #
 # NOTION_TOKEN is read from the EnvironmentFile below (root-readable, mode 600,
@@ -9,6 +12,8 @@
 Description=Daily Poem — render today's poem and push to the Inky panel
 Wants=network-online.target
 After=network-online.target
+# Chain the companion selection after this render (it pairs to the poem just chosen).
+Wants=daily-companion.service
 
 [Service]
 Type=oneshot
