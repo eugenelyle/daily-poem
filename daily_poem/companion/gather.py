@@ -262,17 +262,18 @@ def _fetch_met(angles: list[str], n: int) -> list[Candidate]:
                     continue
 
                 title = obj.get("title", "Untitled")
-                artist = obj.get("artistDisplayName", "Unknown")
+                artist = (obj.get("artistDisplayName") or "").strip()
                 date = obj.get("objectDate", "")
                 medium = obj.get("medium", "")
-                description = f"{title} — {artist}{', ' + date if date else ''}\nMedium: {medium}" if medium else f"{title} — {artist}{', ' + date if date else ''}"
+                base = f"{title}{' — ' + artist if artist else ''}{', ' + date if date else ''}"
+                description = f"{base}\nMedium: {medium}" if medium else base
 
                 results.append(Candidate(
                     id=_make_id("met", str(obj_id)),
                     type="image",
                     content_or_description=description,
                     source_name="Metropolitan Museum of Art",
-                    attribution=f"{title}, {artist}. The Metropolitan Museum of Art.",
+                    attribution=f"{title}{', ' + artist if artist else ''}. The Metropolitan Museum of Art.",
                     url=obj.get("objectURL", f"https://www.metmuseum.org/art/collection/search/{obj_id}"),
                     image_url=image_url,
                 ))
@@ -315,12 +316,12 @@ def _fetch_aic(angles: list[str], n: int) -> list[Candidate]:
                 seen.add(key)
 
                 title = artwork.get("title", "Untitled")
-                artist = artwork.get("artist_display", "Unknown")
+                artist = (artwork.get("artist_display") or "").strip()
                 date = artwork.get("date_display", "")
                 medium = artwork.get("medium_display", "")
                 thumb = artwork.get("thumbnail") or {}
                 alt_text = thumb.get("alt_text", "")
-                description = f"{title} — {artist}{', ' + date if date else ''}"
+                description = f"{title}{' — ' + artist if artist else ''}{', ' + date if date else ''}"
                 if alt_text:
                     description += f"\n{alt_text}"
 
@@ -330,7 +331,7 @@ def _fetch_aic(angles: list[str], n: int) -> list[Candidate]:
                     type="image",
                     content_or_description=description,
                     source_name="Art Institute of Chicago",
-                    attribution=f"{title}, {artist}. Art Institute of Chicago.",
+                    attribution=f"{title}{', ' + artist if artist else ''}. Art Institute of Chicago.",
                     url=f"https://www.artic.edu/artworks/{artwork['id']}",
                     image_url=image_url,
                 ))
@@ -382,7 +383,7 @@ def _fetch_rijksmuseum(angles: list[str], n: int) -> list[Candidate]:
                 src = item.get("_source", item)
                 title = src.get("title", "") or item.get("title", "Untitled")
                 maker = (src.get("principalMaker") or src.get("principalOrFirstMaker")
-                         or item.get("principalOrFirstMaker", "Unknown"))
+                         or item.get("principalOrFirstMaker") or "").strip()
                 dating = src.get("dating", {})
                 date = dating.get("presentingDate", "") if isinstance(dating, dict) else ""
 
@@ -393,13 +394,13 @@ def _fetch_rijksmuseum(angles: list[str], n: int) -> list[Candidate]:
                 if not image_url:
                     continue
 
-                description = f"{title} — {maker}{', ' + date if date else ''}"
+                description = f"{title}{' — ' + maker if maker else ''}{', ' + date if date else ''}"
                 results.append(Candidate(
                     id=_make_id("rijksmuseum", str(obj_id)),
                     type="image",
                     content_or_description=description,
                     source_name="Rijksmuseum",
-                    attribution=f"{title}, {maker}. Rijksmuseum, Amsterdam.",
+                    attribution=f"{title}{', ' + maker if maker else ''}. Rijksmuseum, Amsterdam.",
                     url=f"https://www.rijksmuseum.nl/en/collection/{obj_id}",
                     image_url=image_url,
                 ))
