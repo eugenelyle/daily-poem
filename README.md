@@ -63,9 +63,12 @@ through `poems/` deterministically by date.
 
 The production source reads your poem database directly. The poem text is the page
 body (one paragraph per line; an empty paragraph is a stanza break); the capitalized
-`Title` property is an index label and is **not** rendered.
-Rich properties (`Form`, `Themes`, `Line Count`, `Status`, `Book`) are carried into
-`Poem.meta` for the future companion layer.
+`Title` property is an index label and is **not** rendered — but a *genuine* title
+distinct from the first line (e.g. another poet's "The Second Coming") **is**.
+An optional **`Author`** text property is the byline: leave it blank for your own
+poems (no attribution line), fill it with the poet's name for others — it renders as
+"— Poet Name" when `show_author` is on. Rich properties (`Form`, `Themes`,
+`Line Count`, `Status`, `Book`) are carried into `Poem.meta` for the companion layer.
 
 One-time setup (yours to do — needs your login):
 

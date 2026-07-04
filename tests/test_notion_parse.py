@@ -74,6 +74,26 @@ def test_genuine_title_is_kept():
     assert poem.lines[0] == "the morning light"
 
 
+def test_author_property_becomes_byline():
+    # Another poet's poem: a genuine title AND an Author -> both available to render.
+    page = {"url": "u", "properties": {
+        "Title": {"type": "title", "title": [{"plain_text": "The Second Coming"}]},
+        "Author": {"type": "rich_text", "rich_text": [{"plain_text": "W. B. Yeats"}]},
+    }}
+    poem = page_to_poem(page, [_para("Turning and turning in the widening gyre")])
+    assert poem.title == "The Second Coming"
+    assert poem.author == "W. B. Yeats"
+
+
+def test_missing_author_is_empty_not_none():
+    # My own poems have no Author property -> author is "" so no byline renders.
+    page = {"url": "u", "properties": {
+        "Title": {"type": "title", "title": [{"plain_text": "A Quiet Field"}]},
+    }}
+    poem = page_to_poem(page, [_para("the morning light")])
+    assert poem.author == ""
+
+
 def test_page_to_poem_keeps_metadata_not_title():
     page = {
         "url": "https://notion.so/x",

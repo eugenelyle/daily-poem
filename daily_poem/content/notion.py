@@ -3,9 +3,12 @@
 Maps the "Poetry Collection" database to Poems:
   - The poem TEXT is the page body: each line is a paragraph block; an empty
     paragraph is a stanza break. (Soft line breaks inside a paragraph are kept.)
-  - `Title` is the capitalized first line for indexing — NOT rendered. We keep
-    the rich properties (Form, Themes, Line Count, Status, Book, ...) in Poem.meta
-    so the editorial/companion layer can use them later.
+  - `Title` is the capitalized first line for indexing — NOT rendered. A genuine,
+    distinct title (e.g. another poet's "The Second Coming") IS rendered.
+  - `Author` is the byline: blank for my own poems (no attribution line), a poet's
+    name for others. Rendered only when set (and when `show_author` is on).
+  - We keep the rich properties (Form, Themes, Line Count, Status, Book, ...) in
+    Poem.meta so the editorial/companion layer can use them later.
 
 Auth is an internal-integration token via the NOTION_TOKEN env var (never config).
 Built on stdlib urllib so the Notion path adds no dependencies.
@@ -115,7 +118,7 @@ def page_to_poem(page: dict, blocks: list[dict]) -> Poem:
     }
     return Poem(
         title=title,
-        author="",
+        author=_prop(props, "Author") or "",  # blank for my own poems; a poet's name for others
         stanzas=stanzas,
         source=page.get("url", page.get("id", "")),
         meta={k: v for k, v in meta.items() if v is not None},
