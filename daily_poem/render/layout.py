@@ -66,6 +66,26 @@ def _wrap(text: str, font: ImageFont.FreeTypeFont, max_w: float) -> list[str]:
     return lines or [""]
 
 
+def _wrap_runover(text: str, font: ImageFont.FreeTypeFont, first_w: float, cont_w: float) -> list[str]:
+    """Wrap so the first line fits `first_w` and any turned lines fit the (narrower)
+    `cont_w` — turned lines are indented, so they have less room. The poet's words
+    stay in order; used only when a line is too wide to crowd the margin as-is."""
+    words = text.split()
+    if not words:
+        return [""]
+    lines, cur, limit = [], "", first_w
+    for w in words:
+        trial = f"{cur} {w}".strip()
+        if cur and font.getlength(trial) > limit:
+            lines.append(cur)
+            cur, limit = w, cont_w
+        else:
+            cur = trial
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 @dataclass
 class _Row:
     text: str
@@ -78,6 +98,10 @@ class _Row:
 # it wraps — so a line only turns when it would truly clip off the page, not merely
 # because it reaches into the right margin.
 _RUNOVER_INSET = 4
+
+# A turned line's continuation hangs indented from the left margin by this many em
+# (≈ 3 characters), the way verse runover is set in print.
+_RUNOVER_INDENT_EM = 1.6
 
 
 def _build_rows(poem: Poem, cfg: Config, size: int, text_w: int, line_height: float,
@@ -101,12 +125,14 @@ def _build_rows(poem: Poem, cfg: Config, size: int, text_w: int, line_height: fl
     # the text measure. So a line only turns when it would truly clip off the page;
     # a line that merely reaches past the right margin just crowds it and stays put.
     wide_w = cfg.page.width - cfg.margins.left - _RUNOVER_INSET
+    indent = 0 if t.align == "center" else round(size * _RUNOVER_INDENT_EM)
     for s, stanza in enumerate(poem.stanzas):
         for ln in stanza:
             # Normally one row per line (the poet's breaks are sacred). When `wrap`,
             # a line too wide even to crowd the margin is TURNED: the overflow
-            # continues flush-right on a runover row (print convention), not clipped.
-            segments = _wrap(ln, bf, wide_w) if wrap else [ln]
+            # continues on an indented runover row (print convention), not clipped.
+            # The first line crowds the full width; turned lines fit the indented width.
+            segments = _wrap_runover(ln, bf, wide_w, wide_w - indent) if wrap else [ln]
             for i, seg in enumerate(segments):
                 rows.append(_Row(seg, bf, round(leading), body_align if i == 0 else runover_align))
         if s < len(poem.stanzas) - 1 and rows:
@@ -185,8 +211,8 @@ def layout_poem(poem: Poem, cfg: Config) -> Layout:
         w = round(r.font.getlength(r.text))
         if r.align == "center":
             x = m.left + (text_w - w) // 2
-        elif r.align == "runover":  # turned line: flush to the crowded right edge
-            x = p.width - _RUNOVER_INSET - w
+        elif r.align == "runover":  # turned line: hanging indent from the left margin
+            x = block_x + round(r.font.size * _RUNOVER_INDENT_EM)
         elif r.align == "right":
             x = p.width - m.right - w
         else:  # block: left-aligned lines inside a horizontally-centred block
