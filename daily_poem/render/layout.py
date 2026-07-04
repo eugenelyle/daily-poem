@@ -71,7 +71,13 @@ class _Row:
     text: str
     font: ImageFont.FreeTypeFont
     advance: int          # vertical step to the next row's top
-    align: str            # "center" | "block" | "right"
+    align: str            # "center" | "block" | "right" | "runover"
+
+
+# A turned line may crowd to within this many px of the physical right edge before
+# it wraps — so a line only turns when it would truly clip off the page, not merely
+# because it reaches into the right margin.
+_RUNOVER_INSET = 4
 
 
 def _build_rows(poem: Poem, cfg: Config, size: int, text_w: int, line_height: float,
@@ -90,13 +96,17 @@ def _build_rows(poem: Poem, cfg: Config, size: int, text_w: int, line_height: fl
 
     bf = load_font(cfg.path(t.body_font).as_posix(), size, t.body_weight, opsz=size)
     body_align = t.align if t.align == "center" else "block"
-    runover_align = "center" if t.align == "center" else "right"
+    runover_align = "center" if t.align == "center" else "runover"
+    # Turn against the FULL drawable width (left margin → near the right edge), not
+    # the text measure. So a line only turns when it would truly clip off the page;
+    # a line that merely reaches past the right margin just crowds it and stays put.
+    wide_w = cfg.page.width - cfg.margins.left - _RUNOVER_INSET
     for s, stanza in enumerate(poem.stanzas):
         for ln in stanza:
             # Normally one row per line (the poet's breaks are sacred). When `wrap`,
-            # a line too wide for the measure is TURNED: the overflow continues on an
-            # indented/flush-right runover row (print convention) instead of clipping.
-            segments = _wrap(ln, bf, text_w) if wrap else [ln]
+            # a line too wide even to crowd the margin is TURNED: the overflow
+            # continues flush-right on a runover row (print convention), not clipped.
+            segments = _wrap(ln, bf, wide_w) if wrap else [ln]
             for i, seg in enumerate(segments):
                 rows.append(_Row(seg, bf, round(leading), body_align if i == 0 else runover_align))
         if s < len(poem.stanzas) - 1 and rows:
@@ -148,16 +158,17 @@ def layout_poem(poem: Poem, cfg: Config) -> Layout:
             lead = t.line_height_min
             rows = _build_rows(poem, cfg, t.min_size, text_w, lead, wrap=True)
 
-    # Recompute after any runover wrap: width is now handled by turning lines, so a
-    # residual overflow means the poem is genuinely too TALL (a stanza will clip at
-    # the bottom) — a cleaner failure than a line clipped mid-word at the right edge.
+    # Recompute against the PAGE, not the text area: a turned line may crowd the
+    # right margin, and a poem may spill into the bottom margin — both still on-page.
+    # A residual overflow now means something truly clips off the page edge.
     total_h, max_w, block_w = _metrics(rows)
-    overflow = max_w > text_w or total_h > text_h
+    draw_w, draw_h = p.width - m.left, p.height - m.top
+    overflow = max_w > draw_w or total_h > draw_h
     warnings: list[str] = []
     if overflow:
         warnings.append(
             f"Poem does not fit at min size {t.min_size}px even with tightest leading "
-            f"(needs {max_w}x{total_h}px, have {text_w}x{text_h}px). Placed anyway."
+            f"(needs {max_w}x{total_h}px, have {draw_w}x{draw_h}px on-page). Placed anyway."
         )
 
     if t.valign == "top":
@@ -174,6 +185,8 @@ def layout_poem(poem: Poem, cfg: Config) -> Layout:
         w = round(r.font.getlength(r.text))
         if r.align == "center":
             x = m.left + (text_w - w) // 2
+        elif r.align == "runover":  # turned line: flush to the crowded right edge
+            x = p.width - _RUNOVER_INSET - w
         elif r.align == "right":
             x = p.width - m.right - w
         else:  # block: left-aligned lines inside a horizontally-centred block
