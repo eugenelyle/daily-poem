@@ -1,11 +1,13 @@
 """Typesetting: place a poem on the page as a typeset page, not terminal output.
 
 Core rules:
-  - The poet's line breaks are sacred — we never auto-wrap the poem body.
+  - The poet's line breaks are sacred — we never re-flow the poem into new lines.
+    Auto-fit shrinks the type so the poet's lines fit as written.
   - Auto-fit: pick the largest body size at which the longest line fits the
     width AND the whole poem fits the height. Title and attribution scale with it.
-  - If it won't fit even at the floor size, we place it at the floor and report
-    an overflow warning rather than silently shrinking into mush.
+  - Last resort for a line too wide even at the floor size: it is *turned* (print
+    "runover") — the overflow continues flush-right on a continuation row — rather
+    than clipped mid-word at the margin. Only genuinely too-tall poems then warn.
 """
 from __future__ import annotations
 
@@ -72,7 +74,8 @@ class _Row:
     align: str            # "center" | "block" | "right"
 
 
-def _build_rows(poem: Poem, cfg: Config, size: int, text_w: int, line_height: float) -> list[_Row]:
+def _build_rows(poem: Poem, cfg: Config, size: int, text_w: int, line_height: float,
+                wrap: bool = False) -> list[_Row]:
     t = cfg.type
     leading = size * line_height
     rows: list[_Row] = []
@@ -86,9 +89,16 @@ def _build_rows(poem: Poem, cfg: Config, size: int, text_w: int, line_height: fl
             rows[-1].advance += round(leading * t.title_gap)
 
     bf = load_font(cfg.path(t.body_font).as_posix(), size, t.body_weight, opsz=size)
+    body_align = t.align if t.align == "center" else "block"
+    runover_align = "center" if t.align == "center" else "right"
     for s, stanza in enumerate(poem.stanzas):
         for ln in stanza:
-            rows.append(_Row(ln, bf, round(leading), t.align if t.align == "center" else "block"))
+            # Normally one row per line (the poet's breaks are sacred). When `wrap`,
+            # a line too wide for the measure is TURNED: the overflow continues on an
+            # indented/flush-right runover row (print convention) instead of clipping.
+            segments = _wrap(ln, bf, text_w) if wrap else [ln]
+            for i, seg in enumerate(segments):
+                rows.append(_Row(seg, bf, round(leading), body_align if i == 0 else runover_align))
         if s < len(poem.stanzas) - 1 and rows:
             rows[-1].advance += round(leading * t.stanza_gap)
 
@@ -134,11 +144,15 @@ def layout_poem(poem: Poem, cfg: Config) -> Layout:
             if fits(trial):
                 chosen, lead, rows, overflow = t.min_size, lh, trial, False
                 break
-        else:  # genuinely too long; place at floor + tightest leading
+        else:  # too wide to fit even at the floor: turn over-wide lines (runover)
             lead = t.line_height_min
-            rows = _build_rows(poem, cfg, t.min_size, text_w, lead)
+            rows = _build_rows(poem, cfg, t.min_size, text_w, lead, wrap=True)
 
+    # Recompute after any runover wrap: width is now handled by turning lines, so a
+    # residual overflow means the poem is genuinely too TALL (a stanza will clip at
+    # the bottom) — a cleaner failure than a line clipped mid-word at the right edge.
     total_h, max_w, block_w = _metrics(rows)
+    overflow = max_w > text_w or total_h > text_h
     warnings: list[str] = []
     if overflow:
         warnings.append(
