@@ -65,4 +65,5 @@ companion_image_path = "out/companion.png"
 companion_json_path  = "out/companion.json"
 image_mud_threshold  = 0.90  # reject image if black+white combined > this fraction of pixels
 server_host = "0.0.0.0"      # button server bind address (0.0.0.0 = reachable on the LAN)
-server_port = 8080           # iPhone Shortcut hits http://<pi>:8080/companion
+server_port = 8080           # a button hits http://<pi>:8080/companion (or /toggle)
+current_page_path = "out/current_page"  # which page is showing (poem|companion); drives /toggle

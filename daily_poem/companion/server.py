@@ -6,8 +6,9 @@ the LAN) hits it to flip the panel between the poem and its companion:
   GET  /health     -> 200 {"status": "ok"}        connectivity check
   POST /companion  -> push the day's companion (page 2) to the Inky
   POST /poem       -> re-render today's poem (page 1) and push it
+  POST /toggle     -> flip to whichever page is NOT showing now (single-button use)
 
-(GET is also accepted on the two actions so a Shortcut can be a single URL.)
+(GET is also accepted on the actions so a hardware button can be a single URL.)
 
 Each action shells out to `python -m daily_poem ...` — a fresh process per press,
 so the long-lived server never holds an Inky handle and a render crash can't take
@@ -51,6 +52,7 @@ def serve(cfg: Config, host: str | None = None, port: int | None = None) -> None
 
 def _make_handler(cfg: Config):
     repo_root = cfg.root
+    current_page_file = cfg.path(cfg.companion.current_page_path)
 
     class Handler(BaseHTTPRequestHandler):
         # Quieter logs: route through logging, not stderr prints.
@@ -71,6 +73,16 @@ def _make_handler(cfg: Config):
                 return self._run_action("companion", ["show-companion", "--target", "inky"])
             if path == "/poem":
                 return self._run_action("poem", ["render", "--target", "inky"])
+            if path == "/toggle":
+                # Flip to whichever page is NOT up now. The dispatched command
+                # records the new current page, so the next toggle flips back.
+                try:
+                    current = current_page_file.read_text(encoding="utf-8").strip()
+                except Exception:
+                    current = "poem"
+                if current == "companion":
+                    return self._run_action("poem", ["render", "--target", "inky"])
+                return self._run_action("companion", ["show-companion", "--target", "inky"])
             return self._json(404, {"error": "not found", "path": self.path})
 
         def _run_action(self, label: str, argv: list[str]):

@@ -1,0 +1,45 @@
+# Companion button — ESPHome config for a Seeed XIAO ESP32-C3 (or any ESP32-C3).
+#
+# Behavior: the board sleeps until the button pulls GPIO3 low. On wake it boots,
+# joins Wi-Fi, POSTs to the frame's /toggle endpoint, then deep-sleeps again.
+#
+# Put your Wi-Fi in a secrets.yaml next to this file:
+#   wifi_ssid: "YourNetwork"
+#   wifi_password: "YourPassword"
+#
+# NOTE: verify `board:` and the ESPHome `http_request` / `deep_sleep` syntax against
+# the current ESPHome docs when you flash — the component keys shift between versions.
+# The logic (wake -> POST /toggle -> sleep) is the part that matters.
+
+esphome:
+  name: poem-button
+  on_boot:
+    priority: -100
+    then:
+      - http_request.post:
+          url: "http://dailypoem.local:8080/toggle"
+      - delay: 200ms          # let the request flush before we cut power
+      - deep_sleep.enter: deep_sleep_control
+
+esp32:
+  board: esp32-c3-devkitm-1   # works for the XIAO ESP32-C3; swap if your board differs
+  variant: esp32c3
+  framework:
+    type: arduino
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+http_request:
+  timeout: 8s
+
+# Sleep at µA until the button (GPIO3 -> GND) wakes it. `inverted` = wake on LOW.
+deep_sleep:
+  id: deep_sleep_control
+  wakeup_pin:
+    number: GPIO3
+    inverted: true
+    mode: INPUT_PULLUP
+
+logger:

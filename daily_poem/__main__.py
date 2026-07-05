@@ -31,6 +31,17 @@ def _apply_target(cfg, target):
                                 "output": config_mod.Output(cfg.output.preview_path, target)})
 
 
+def _record_page(cfg, page: str) -> None:
+    """Record which page (poem|companion) is now showing, so the button /toggle
+    knows which way to flip. Best-effort — never fail a render over it."""
+    try:
+        p = cfg.path(cfg.companion.current_page_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(page, encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _render(args) -> int:
     cfg = _apply_target(config_mod.load(args.config), args.target)
 
@@ -46,6 +57,7 @@ def _render(args) -> int:
         print(f"warning: {w}", file=sys.stderr)
 
     result = output(render, cfg)
+    _record_page(cfg, "poem")
     where = f"preview -> {result}" if result else f"pushed to Inky (target={cfg.output.target})"
     label = poem.title or poem.meta.get("first_line") or (poem.lines[0] if poem.lines else poem.source)
     print(f'"{label}" set at {render.layout.body_size}px body; {where}')
@@ -104,6 +116,7 @@ def _show_companion(args) -> int:
     else:
         output(render, cfg)
         print(f'companion page 2 ({payload.get("type")}) pushed to Inky')
+    _record_page(cfg, "companion")
     return 0
 
 

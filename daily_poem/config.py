@@ -80,6 +80,7 @@ class CompanionConfig:
     image_mud_threshold: float
     server_host: str
     server_port: int
+    current_page_path: str
 
 
 @dataclass(frozen=True)
@@ -126,6 +127,7 @@ def load(config_path: str | os.PathLike = "config.toml") -> Config:
             image_mud_threshold=companion_raw.get("image_mud_threshold", 0.90),
             server_host=companion_raw.get("server_host", "0.0.0.0"),
             server_port=companion_raw.get("server_port", 8080),
+            current_page_path=companion_raw.get("current_page_path", "out/current_page"),
         ),
     )
 

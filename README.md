@@ -247,7 +247,13 @@ poem and its companion:
 GET  /health     -> {"status": "ok"}            connectivity check
 POST /companion  -> push the day's companion (page 2) to the Inky
 POST /poem       -> re-render today's poem (page 1) and push it
+POST /toggle     -> flip to whichever page is NOT showing (single-button use)
 ```
+
+`/toggle` reads which page is up (tracked in `out/current_page`, written whenever the
+poem or companion is rendered — including the overnight turnover) and pushes the other
+one. It's what a one-button hardware remote hits — see [`hardware/button/`](hardware/button/)
+for a battery Wi-Fi button (parts list + firmware) that needs no phone.
 
 `/companion` just composes what the overnight job already chose (cheap, offline);
 `/poem` returns the frame to the poem. A lock serializes pushes, so a second tap
