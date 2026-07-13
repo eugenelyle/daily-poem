@@ -86,24 +86,29 @@ def _make_handler(cfg: Config):
             return self._json(404, {"error": "not found", "path": self.path})
 
         def _run_action(self, label: str, argv: list[str]):
+            # The e-ink refresh takes ~30s, but a button shouldn't wait for it. Kick
+            # the render off in the background and reply instantly; the lock still
+            # serializes the actual pushes (a press mid-refresh gets a fast 409).
             if not _push_lock.acquire(blocking=False):
                 return self._json(409, {"status": "busy",
                                         "detail": "a panel refresh is already in progress"})
-            try:
-                cmd = [sys.executable, "-m", "daily_poem", *argv]
-                log.info("running %s: %s", label, " ".join(cmd))
-                proc = subprocess.run(cmd, cwd=repo_root, capture_output=True,
-                                      text=True, timeout=180)
-                if proc.returncode == 0:
-                    return self._json(200, {"status": "ok", "action": label,
-                                            "output": proc.stdout.strip()})
-                log.error("%s failed (rc=%d): %s", label, proc.returncode, proc.stderr.strip())
-                return self._json(500, {"status": "error", "action": label,
-                                        "detail": proc.stderr.strip()[-500:]})
-            except subprocess.TimeoutExpired:
-                return self._json(504, {"status": "timeout", "action": label})
-            finally:
-                _push_lock.release()
+
+            def worker():
+                try:
+                    cmd = [sys.executable, "-m", "daily_poem", *argv]
+                    log.info("running %s: %s", label, " ".join(cmd))
+                    proc = subprocess.run(cmd, cwd=repo_root, capture_output=True,
+                                          text=True, timeout=180)
+                    if proc.returncode != 0:
+                        log.error("%s failed (rc=%d): %s", label, proc.returncode,
+                                  proc.stderr.strip())
+                except Exception as exc:
+                    log.error("%s errored: %s", label, exc)
+                finally:
+                    _push_lock.release()
+
+            threading.Thread(target=worker, daemon=True).start()
+            return self._json(202, {"status": "accepted", "action": label})
 
         def _json(self, code: int, body: dict):
             payload = json.dumps(body).encode("utf-8")
