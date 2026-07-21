@@ -138,12 +138,21 @@ def _build_rows(poem: Poem, cfg: Config, size: int, text_w: int, line_height: fl
         if s < len(poem.stanzas) - 1 and rows:
             rows[-1].advance += round(leading * t.stanza_gap)
 
+    # The attribution slot holds exactly one line: another poet's byline when
+    # Author is set, else — for my own poems — the book the poem belongs to.
+    attribution = ""
     if t.show_author and poem.author:
+        attribution = f"— {poem.author}"
+    elif t.show_book and not poem.author:
+        book = poem.meta.get("book")
+        if isinstance(book, str) and book.strip():
+            attribution = f"from {book.strip()}"
+    if attribution:
         au = round(size * t.author_ratio)
         af = load_font(cfg.path(t.italic_font).as_posix(), au, t.body_weight, opsz=au)
         if rows:
             rows[-1].advance += round(leading * t.author_gap)
-        rows.append(_Row(f"— {poem.author}", af, round(au * line_height), "right"))
+        rows.append(_Row(attribution, af, round(au * line_height), "right"))
 
     return rows
 

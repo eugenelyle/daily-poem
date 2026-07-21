@@ -43,6 +43,7 @@ class Type:
     valign_bias: float
     show_title: bool
     show_author: bool
+    show_book: bool = True
 
 
 @dataclass(frozen=True)

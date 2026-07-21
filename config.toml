@@ -34,6 +34,7 @@ valign = "center"            # optical | center | top. optical lifts short poems
 valign_bias = 0.45           # for valign=optical: where the block's centre sits as a fraction of the text area (0.5 = true centre).
 show_title  = true           # Render only GENUINE titles (one distinct from the first line). Index-convention titles (= the first line) are auto-suppressed. Set false to force titles off entirely.
 show_author = true           # Byline shows only when a poem has an Author (Notion "Author" prop). My own poems leave it blank → no line; other poets' poems show "— Poet Name".
+show_book   = true           # My own poems (blank Author) with a Book (Notion "Book" prop / md `book:`) show "from Book Title" in the byline slot. Never shown for other poets' poems.
 
 [palette]
 # Sourced from the inky library (inky_e673.py, Spectra 6). Regenerate with
