@@ -131,8 +131,15 @@ def _serve(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-    if "--verbose" in (argv or sys.argv):
-        logging.basicConfig(level=logging.DEBUG, format="%(name)s: %(message)s")
+    # Configure logging ALWAYS, not only under --verbose: the unattended systemd
+    # runs are exactly where the per-source counts need to reach the journal. With
+    # no handler, log.info() went nowhere and the pool was invisible again.
+    verbose = "--verbose" in (argv or sys.argv)
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO,
+                        format="%(name)s: %(message)s")
+    if not verbose:  # HTTP clients narrate every request at INFO; keep the journal readable
+        for noisy in ("httpx", "httpcore", "urllib3", "anthropic"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
 
     parser = argparse.ArgumentParser(prog="daily_poem")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
