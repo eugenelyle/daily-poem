@@ -6,7 +6,11 @@ Sources (all open/public, no API key required):
   wiktionary - Wiktionary etymologies
   met        - Metropolitan Museum of Art (open-access images)
   aic        - Art Institute of Chicago (open-access images)
-  rijksmuseum - Rijksmuseum collection (open-access images)
+  cma        - Cleveland Museum of Art (open-access images)
+
+Every source queries on the angle's short `term`, never its prose. These APIs
+are keyword search engines: a sentence-length query returns nothing at all (or
+matches on stopwords like "the"), which is what quietly starved the pool.
 
 Each source returns at most candidates_per_source results. Sources run in
 parallel via ThreadPoolExecutor. Individual source failures are swallowed so
@@ -22,11 +26,13 @@ from dataclasses import dataclass, field
 import requests
 
 from ..config import Config
+from .distill import Angle
 
 log = logging.getLogger(__name__)
 
 _HEADERS = {"User-Agent": "daily-poem/1.0 (personal e-ink frame; contact via github.com/eugenelyle/daily-poem)"}
 _TIMEOUT = 10
+_WIKI_HITS_PER_TERM = 5  # >1 so a term family doesn't funnel to one article
 
 
 @dataclass
@@ -45,23 +51,27 @@ class Candidate:
 # Orchestrator
 # ---------------------------------------------------------------------------
 
-def gather(angles: list[str], cfg: Config) -> list[Candidate]:
+def gather(angles: list[Angle], cfg: Config) -> list[Candidate]:
     """Fetch candidates from all enabled sources in parallel."""
     n = cfg.companion.candidates_per_source
     sources = cfg.companion.sources
 
     fetchers = {
-        "poetrydb":    lambda: _fetch_poetrydb(angles, n),
-        "wikipedia":   lambda: _fetch_wikipedia(angles, n),
-        "wiktionary":  lambda: _fetch_wiktionary(angles, n),
-        "met":         lambda: _fetch_met(angles, n),
-        "aic":         lambda: _fetch_aic(angles, n),
-        "rijksmuseum": lambda: _fetch_rijksmuseum(angles, n),
+        "poetrydb":   lambda: _fetch_poetrydb(angles, n),
+        "wikipedia":  lambda: _fetch_wikipedia(angles, n),
+        "wiktionary": lambda: _fetch_wiktionary(angles, n),
+        "met":        lambda: _fetch_met(angles, n),
+        "aic":        lambda: _fetch_aic(angles, n),
+        "cma":        lambda: _fetch_cma(angles, n),
     }
+
+    unknown = [s for s in sources if s not in fetchers]
+    if unknown:
+        log.warning("unknown source(s) in config, ignored: %s", ", ".join(unknown))
 
     candidates: list[Candidate] = []
     futures = {}
-    with ThreadPoolExecutor(max_workers=len(sources)) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, len(sources))) as pool:
         for name in sources:
             if name in fetchers:
                 futures[pool.submit(fetchers[name])] = name
@@ -71,9 +81,11 @@ def gather(angles: list[str], cfg: Config) -> list[Candidate]:
             try:
                 results = fut.result()
                 candidates.extend(results)
-                log.debug("%s: %d candidates", name, len(results))
+                # INFO, not DEBUG: a source silently returning 0 is the failure
+                # mode that hid for weeks. It should be visible in journalctl.
+                log.info("source %-11s -> %d candidates", name, len(results))
             except Exception as exc:
-                log.warning("%s fetch failed: %s", name, exc)
+                log.warning("source %-11s FAILED: %s", name, exc)
 
     return candidates
 
@@ -82,15 +94,16 @@ def gather(angles: list[str], cfg: Config) -> list[Candidate]:
 # Source: PoetryDB
 # ---------------------------------------------------------------------------
 
-def _fetch_poetrydb(angles: list[str], n: int) -> list[Candidate]:
+def _fetch_poetrydb(angles: list[Angle], n: int) -> list[Candidate]:
     seen: set[str] = set()
     results: list[Candidate] = []
 
     for angle in angles:
         if len(results) >= n:
             break
-        # Search by title keyword (more reliable than line search for oblique terms)
-        url = f"https://poetrydb.org/title/{requests.utils.quote(angle)}"
+        # Search by title keyword. (/lines/ would be a richer match but has been
+        # returning 503 upstream; /title/ answers reliably for a short term.)
+        url = f"https://poetrydb.org/title/{requests.utils.quote(angle.term)}"
         try:
             resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
             if resp.status_code != 200:
@@ -129,7 +142,15 @@ def _fetch_poetrydb(angles: list[str], n: int) -> list[Candidate]:
 # Source: Wikipedia
 # ---------------------------------------------------------------------------
 
-def _fetch_wikipedia(angles: list[str], n: int) -> list[Candidate]:
+def _fetch_wikipedia(angles: list[Angle], n: int) -> list[Candidate]:
+    """Search each term and keep several hits, not just the top one.
+
+    srlimit=1 made this a funnel: 'apophatic', 'via negativa' and 'negative
+    theology' all resolve to the same single article, so any angle in that family
+    produced the identical candidate. Taking the first few hits per term restores
+    the spread (that same search also offers Agnosticism, Différance,
+    Pseudo-Dionysius).
+    """
     seen: set[str] = set()
     results: list[Candidate] = []
 
@@ -137,32 +158,36 @@ def _fetch_wikipedia(angles: list[str], n: int) -> list[Candidate]:
         if len(results) >= n:
             break
         try:
-            # Search for the article
             search_resp = requests.get(
                 "https://en.wikipedia.org/w/api.php",
-                params={"action": "query", "list": "search", "srsearch": angle,
-                        "srlimit": 1, "format": "json"},
+                params={"action": "query", "list": "search", "srsearch": angle.term,
+                        "srlimit": _WIKI_HITS_PER_TERM, "format": "json"},
                 headers=_HEADERS, timeout=_TIMEOUT,
             )
             hits = search_resp.json().get("query", {}).get("search", [])
-            if not hits:
-                continue
-            title = hits[0]["title"]
-            if title in seen:
+        except Exception:
+            continue
+
+        for hit in hits:
+            if len(results) >= n:
+                break
+            title = hit.get("title", "")
+            if not title or title in seen or _is_index_article(title):
                 continue
             seen.add(title)
-
-            # Get the intro extract
-            extract_resp = requests.get(
-                "https://en.wikipedia.org/w/api.php",
-                params={"action": "query", "prop": "extracts", "exintro": True,
-                        "exsentences": 4, "titles": title, "format": "json",
-                        "explaintext": True},
-                headers=_HEADERS, timeout=_TIMEOUT,
-            )
-            pages = extract_resp.json().get("query", {}).get("pages", {})
-            page = next(iter(pages.values()))
-            extract = (page.get("extract") or "").strip()
+            try:
+                extract_resp = requests.get(
+                    "https://en.wikipedia.org/w/api.php",
+                    params={"action": "query", "prop": "extracts", "exintro": True,
+                            "exsentences": 4, "titles": title, "format": "json",
+                            "explaintext": True},
+                    headers=_HEADERS, timeout=_TIMEOUT,
+                )
+                pages = extract_resp.json().get("query", {}).get("pages", {})
+                page = next(iter(pages.values()))
+                extract = (page.get("extract") or "").strip()
+            except Exception:
+                continue
             if not extract:
                 continue
 
@@ -174,63 +199,103 @@ def _fetch_wikipedia(angles: list[str], n: int) -> list[Candidate]:
                 attribution=f"Wikipedia: {title}",
                 url=f"https://en.wikipedia.org/wiki/{requests.utils.quote(title.replace(' ', '_'))}",
             ))
-        except Exception:
-            continue
 
     return results
+
+
+def _is_index_article(title: str) -> bool:
+    """Skip Wikipedia's list/index/glossary pages — they never deepen a poem.
+
+    ('List of Latin phrases (full)' was a real companion candidate.)
+    """
+    low = title.lower()
+    return (low.startswith(("list of", "index of", "glossary of", "outline of",
+                            "timeline of", "comparison of"))
+            or low.endswith(("(disambiguation)",)))
 
 
 # ---------------------------------------------------------------------------
 # Source: Wiktionary (etymology)
 # ---------------------------------------------------------------------------
 
-def _fetch_wiktionary(angles: list[str], n: int) -> list[Candidate]:
+def _fetch_wiktionary(angles: list[Angle], n: int) -> list[Candidate]:
+    """Pull the Etymology section for each term.
+
+    This source returned nothing for its entire life: it asked for `exintro`,
+    but a Wiktionary entry has no lead section before its first heading, so the
+    extract came back empty for every word — including the design doc's own
+    examples (want, nostalgia). Fetch the whole page and cut the Etymology
+    section out ourselves.
+    """
     seen: set[str] = set()
     results: list[Candidate] = []
 
     for angle in angles:
         if len(results) >= n:
             break
-        # Use single-word angles for etymology (skip multi-word phrases)
-        word = angle.strip().split()[0].lower()
-        if word in seen:
+        word = angle.term.strip().lower()
+        if not word or word in seen:
             continue
         seen.add(word)
         try:
             resp = requests.get(
                 "https://en.wiktionary.org/w/api.php",
-                params={"action": "query", "prop": "extracts", "exintro": True,
-                        "titles": word, "format": "json", "explaintext": True},
+                params={"action": "query", "prop": "extracts", "titles": word,
+                        "format": "json", "explaintext": True},
                 headers=_HEADERS, timeout=_TIMEOUT,
             )
             pages = resp.json().get("query", {}).get("pages", {})
             page = next(iter(pages.values()))
             if page.get("missing") is not None:
                 continue
-            extract = (page.get("extract") or "").strip()
-            if not extract or len(extract) < 30:
-                continue
-            # Take only the first meaningful chunk (etymology is near the top)
-            extract = extract[:600]
-            results.append(Candidate(
-                id=_make_id("wiktionary", word),
-                type="text",
-                content_or_description=f"Etymology of '{word}':\n\n{extract}",
-                source_name="Wiktionary",
-                attribution=f"Wiktionary: {word}",
-                url=f"https://en.wiktionary.org/wiki/{requests.utils.quote(word)}",
-            ))
+            etymology = extract_etymology(page.get("extract") or "")
         except Exception:
             continue
+        if not etymology:
+            continue
+
+        results.append(Candidate(
+            id=_make_id("wiktionary", word),
+            type="text",
+            content_or_description=f"Etymology of '{word}':\n\n{etymology}",
+            source_name="Wiktionary",
+            attribution=f"Wiktionary: {word}",
+            url=f"https://en.wiktionary.org/wiki/{requests.utils.quote(word)}",
+        ))
 
     return results
+
+
+def extract_etymology(extract: str, max_chars: int = 600) -> str:
+    """Cut the first Etymology section out of a plaintext Wiktionary extract.
+
+    Sections arrive as '=== Etymology ===' (or 'Etymology 1' where a word has
+    several). Returns "" when the entry has no etymology at all.
+    """
+    lines = extract.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip().strip("= ").lower().startswith("etymology"):
+            start = i + 1
+            break
+    if start is None:
+        return ""
+
+    body: list[str] = []
+    for line in lines[start:]:
+        if line.strip().startswith("="):  # next heading ends the section
+            break
+        if line.strip():
+            body.append(line.strip())
+    text = " ".join(body).strip()
+    return text[:max_chars] if len(text) >= 20 else ""
 
 
 # ---------------------------------------------------------------------------
 # Source: Metropolitan Museum of Art
 # ---------------------------------------------------------------------------
 
-def _fetch_met(angles: list[str], n: int) -> list[Candidate]:
+def _fetch_met(angles: list[Angle], n: int) -> list[Candidate]:
     seen: set[str] = set()
     results: list[Candidate] = []
 
@@ -240,7 +305,7 @@ def _fetch_met(angles: list[str], n: int) -> list[Candidate]:
         try:
             search_resp = requests.get(
                 "https://collectionapi.metmuseum.org/public/collection/v1/search",
-                params={"q": angle, "hasImages": "true"},
+                params={"q": angle.term, "hasImages": "true"},
                 headers=_HEADERS, timeout=_TIMEOUT,
             )
             object_ids = search_resp.json().get("objectIDs") or []
@@ -287,7 +352,7 @@ def _fetch_met(angles: list[str], n: int) -> list[Candidate]:
 # Source: Art Institute of Chicago
 # ---------------------------------------------------------------------------
 
-def _fetch_aic(angles: list[str], n: int) -> list[Candidate]:
+def _fetch_aic(angles: list[Angle], n: int) -> list[Candidate]:
     seen: set[str] = set()
     results: list[Candidate] = []
 
@@ -298,7 +363,7 @@ def _fetch_aic(angles: list[str], n: int) -> list[Candidate]:
             resp = requests.get(
                 "https://api.artic.edu/api/v1/artworks/search",
                 params={
-                    "q": angle,
+                    "q": angle.term,
                     "fields": "id,title,image_id,artist_display,date_display,medium_display,thumbnail",
                     "limit": 6,
                 },
@@ -342,10 +407,15 @@ def _fetch_aic(angles: list[str], n: int) -> list[Candidate]:
 
 
 # ---------------------------------------------------------------------------
-# Source: Rijksmuseum
+# Source: Cleveland Museum of Art
 # ---------------------------------------------------------------------------
+# Replaces the Rijksmuseum fetcher, which had gone dead: their data.rijksmuseum.nl
+# endpoint is now a bare Linked-Art enumeration that rejects `q` outright
+# ("Unsupported query parameter") and carries no titles or images in the listing.
+# Cleveland is open, keyless, keyword-searchable, and was already named as a
+# source in the design doc.
 
-def _fetch_rijksmuseum(angles: list[str], n: int) -> list[Candidate]:
+def _fetch_cma(angles: list[Angle], n: int) -> list[Candidate]:
     seen: set[str] = set()
     results: list[Candidate] = []
 
@@ -354,58 +424,46 @@ def _fetch_rijksmuseum(angles: list[str], n: int) -> list[Candidate]:
             break
         try:
             resp = requests.get(
-                "https://data.rijksmuseum.nl/search/collection",
-                params={"q": angle, "type": "painting", "limit": 6},
+                "https://openaccess-api.clevelandart.org/api/artworks/",
+                params={"q": angle.term, "has_image": 1, "cc0": 1, "limit": 6},
                 headers=_HEADERS, timeout=_TIMEOUT,
             )
             if resp.status_code != 200:
                 continue
-            items = resp.json()
-            # Handle both list and {"hits": [...]} response shapes
-            if isinstance(items, dict):
-                items = items.get("hits", items.get("artObjects", []))
-            if not isinstance(items, list):
-                continue
-
-            for item in items:
-                if len(results) >= n:
-                    break
-                # Normalize across potential response shapes
-                obj_id = (item.get("id") or item.get("objectNumber") or
-                          item.get("_id") or "")
-                if not obj_id:
-                    continue
-                key = f"rijksmuseum:{obj_id}"
-                if key in seen:
-                    continue
-                seen.add(key)
-
-                src = item.get("_source", item)
-                title = src.get("title", "") or item.get("title", "Untitled")
-                maker = (src.get("principalMaker") or src.get("principalOrFirstMaker")
-                         or item.get("principalOrFirstMaker") or "").strip()
-                dating = src.get("dating", {})
-                date = dating.get("presentingDate", "") if isinstance(dating, dict) else ""
-
-                # Image URL — try several known shapes
-                web_image = src.get("webImage") or item.get("webImage") or {}
-                image_url = (web_image.get("url", "") or
-                             src.get("headerImage", {}).get("url", "") or "")
-                if not image_url:
-                    continue
-
-                description = f"{title}{' — ' + maker if maker else ''}{', ' + date if date else ''}"
-                results.append(Candidate(
-                    id=_make_id("rijksmuseum", str(obj_id)),
-                    type="image",
-                    content_or_description=description,
-                    source_name="Rijksmuseum",
-                    attribution=f"{title}{', ' + maker if maker else ''}. Rijksmuseum, Amsterdam.",
-                    url=f"https://www.rijksmuseum.nl/en/collection/{obj_id}",
-                    image_url=image_url,
-                ))
+            items = resp.json().get("data", [])
         except Exception:
             continue
+
+        for item in items:
+            if len(results) >= n:
+                break
+            obj_id = item.get("id")
+            if not obj_id or f"cma:{obj_id}" in seen:
+                continue
+            seen.add(f"cma:{obj_id}")
+
+            image_url = ((item.get("images") or {}).get("web") or {}).get("url", "")
+            if not image_url:
+                continue
+
+            title = item.get("title") or "Untitled"
+            creators = item.get("creators") or []
+            artist = (creators[0].get("description", "") if creators else "").strip()
+            date = item.get("creation_date") or ""
+            medium = item.get("technique") or ""
+            description = f"{title}{' — ' + artist if artist else ''}{', ' + date if date else ''}"
+            if medium:
+                description += f"\nMedium: {medium}"
+
+            results.append(Candidate(
+                id=_make_id("cma", str(obj_id)),
+                type="image",
+                content_or_description=description,
+                source_name="Cleveland Museum of Art",
+                attribution=f"{title}{', ' + artist if artist else ''}. Cleveland Museum of Art.",
+                url=item.get("url") or f"https://clevelandart.org/art/{obj_id}",
+                image_url=image_url,
+            ))
 
     return results
 

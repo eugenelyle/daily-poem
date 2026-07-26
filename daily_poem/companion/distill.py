@@ -12,9 +12,22 @@ from ..content.base import Poem
 
 
 @dataclass(frozen=True)
+class Angle:
+    """One oblique direction to search in.
+
+    `term` is the searchable handle (1-3 words) sent verbatim to the source APIs;
+    `prose` is the sentence explaining why it rhymes with the buried question.
+    Every source keys off `term` — the APIs return nothing for sentence-length
+    queries, which is what silently emptied the candidate pool before.
+    """
+    term: str
+    prose: str = ""
+
+
+@dataclass(frozen=True)
 class DistillResult:
     buried_question: str
-    angles: list[str]
+    angles: list[Angle]
 
 
 def distill(poem: Poem, cfg: Config) -> DistillResult:
@@ -35,8 +48,43 @@ def distill(poem: Poem, cfg: Config) -> DistillResult:
     data = parse_json_response(msg, where="distill")
     return DistillResult(
         buried_question=data["buried_question"],
-        angles=data["angles"],
+        angles=parse_angles(data.get("angles", [])),
     )
+
+
+def parse_angles(raw: list) -> list[Angle]:
+    """Normalize the model's `angles` into Angle objects.
+
+    Accepts the current {"term": ..., "angle": ...} shape and tolerates a bare
+    string (the older shape, or a model that drifts back to it) by salvaging a
+    short search term from the front of the sentence — better a rough term than
+    a query no API can answer.
+    """
+    angles: list[Angle] = []
+    for item in raw:
+        if isinstance(item, dict):
+            term = str(item.get("term") or "").strip()
+            prose = str(item.get("angle") or item.get("prose") or "").strip()
+            if not term:
+                term = _salvage_term(prose)
+        else:
+            prose = str(item).strip()
+            term = _salvage_term(prose)
+        term = _clean_term(term)
+        if term:
+            angles.append(Angle(term=term, prose=prose))
+    return angles
+
+
+def _salvage_term(prose: str) -> str:
+    """Take the leading concept off a prose angle ('kenosis: the emptying...')."""
+    head = prose.split(":", 1)[0].split("—", 1)[0].split(",", 1)[0]
+    return " ".join(head.split()[:3])
+
+
+def _clean_term(term: str) -> str:
+    """Strip punctuation and quoting that breaks the source APIs."""
+    return term.strip().strip("'\"“”‘’.,;:—–-").strip()
 
 
 def message_text(msg) -> str:

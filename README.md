@@ -215,6 +215,29 @@ export ANTHROPIC_API_KEY=sk-ant-...        # or put it in .env at the repo root
 candidates with their lenses, and the render-gate outcome — without writing files.
 Drop `--dry-run` to save `out/companion.png` + `out/companion.json`.
 
+**Angles carry a search term.** `distill` returns each angle as a `term` (1–3
+words) plus a sentence of prose. Every source queries the *term*; the prose is
+only there to explain the reach. This matters more than it looks: these APIs are
+keyword engines, and a sentence-length query returns nothing at all — or matches
+on stopwords, which is how the pool once filled up with paintings sharing only
+the word "the". If you add a source, query `angle.term`.
+
+**Watch the pool, not just the pick.** Each run logs a per-source count:
+
+```
+source wikipedia   -> 3 candidates
+pool: 15 candidates — Art Institute of Chicago=3 Cleveland Museum of Art=3 …
+```
+
+A source quietly returning 0 every night is the failure mode to watch for — it
+starves the pool without ever erroring. Check it on the Pi with
+`journalctl -u daily-companion.service | grep -E "source|pool:"`.
+
+**No identical repeats.** `out/companion-history.json` keeps the last
+`history_size` (default 30) companions by URL, and those are dropped from the
+pool before ranking. This bars the *same* companion coming back, not the same
+theme — a poem resurfacing to find a different companion stays a feature.
+
 **Schedule it on the Pi.** The companion needs `ANTHROPIC_API_KEY` on top of the
 `NOTION_TOKEN` the render already uses — append it to the same root-only env file:
 

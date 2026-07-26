@@ -5,9 +5,11 @@ Entry point: run_pipeline(poem, cfg, dry_run=False)
 from __future__ import annotations
 
 import logging
+from collections import Counter
 
 from ..config import Config
 from ..content.base import Poem
+from . import history
 from .distill import distill
 from .emit import emit
 from .gate import gate
@@ -15,6 +17,12 @@ from .gather import gather
 from .rank import rank
 
 log = logging.getLogger(__name__)
+
+
+def _pool_summary(candidates: list) -> str:
+    """'met=3 aic=3 wikipedia=2' — so a starved source is visible in the journal."""
+    counts = Counter(c.source_name for c in candidates)
+    return " ".join(f"{name}={n}" for name, n in sorted(counts.items())) or "(empty)"
 
 
 def run_pipeline(poem: Poem, cfg: Config, *, dry_run: bool = False) -> dict:
@@ -29,13 +37,20 @@ def run_pipeline(poem: Poem, cfg: Config, *, dry_run: bool = False) -> dict:
         print(f"\n=== BURIED QUESTION ===\n{distill_result.buried_question}")
         print(f"\n=== OBLIQUE ANGLES ===")
         for a in distill_result.angles:
-            print(f"  • {a}")
+            print(f"  • {a.term}")
+            if a.prose:
+                print(f"      {a.prose}")
 
-    log.info("gathering candidates from %d sources", len(cfg.companion.sources))
+    log.info("searching %d sources for: %s", len(cfg.companion.sources),
+             ", ".join(a.term for a in distill_result.angles))
     candidates = gather(distill_result.angles, cfg)
+    log.info("pool: %d candidates — %s", len(candidates), _pool_summary(candidates))
+
+    candidates = history.exclude_recent(candidates, cfg)
 
     if dry_run:
         print(f"\n=== CANDIDATE POOL ({len(candidates)} candidates) ===")
+        print(f"  by source: {_pool_summary(candidates)}")
         for c in candidates:
             print(f"  [{c.type}] {c.source_name}: {c.content_or_description[:80].replace(chr(10), ' ')}")
 
@@ -70,4 +85,5 @@ def run_pipeline(poem: Poem, cfg: Config, *, dry_run: bool = False) -> dict:
         }
 
     payload = emit(chosen, rank_result.buried_question, cfg)
+    history.record(cfg, payload)
     return payload

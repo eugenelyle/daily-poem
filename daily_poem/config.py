@@ -82,6 +82,8 @@ class CompanionConfig:
     server_host: str
     server_port: int
     current_page_path: str
+    history_path: str = "out/companion-history.json"
+    history_size: int = 30
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,8 @@ def load(config_path: str | os.PathLike = "config.toml") -> Config:
             server_host=companion_raw.get("server_host", "0.0.0.0"),
             server_port=companion_raw.get("server_port", 8080),
             current_page_path=companion_raw.get("current_page_path", "out/current_page"),
+            history_path=companion_raw.get("history_path", "out/companion-history.json"),
+            history_size=companion_raw.get("history_size", 30),
         ),
     )
 

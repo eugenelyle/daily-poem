@@ -80,6 +80,10 @@ This is the open design problem. Spend the care here.
 
 **The real skill is translation.** Turning one buried question into the specific words, names, and concepts each source can actually answer. Too literal → the obvious. Too clever → empty result sets. This is where iteration will live.
 
+> **Field note, 2026-07-25 — this is exactly what went wrong.** v1 sent each angle to the APIs as its full prose sentence ("kenosis: the theological emptying of self as precondition for being filled"). Keyword engines return *nothing* for that, so for weeks the pool was ~6 museum images matched on stopwords like "the", and on ten of twelve sampled poems Wikipedia returned zero. Three of the six sources had never produced a single candidate: **Wiktionary** asked for `exintro`, which is always empty on Wiktionary (no lead section before the first heading), so the etymologies promised above — *want*, *nostalgia* — never once appeared; **PoetryDB** searched titles with sentence-length queries; **Rijksmuseum**'s keyless endpoint had become a Linked-Art listing that rejects `q` (replaced with Cleveland). Meanwhile `srlimit=1` on Wikipedia made a funnel: *apophatic*, *via negativa* and *negative theology* all resolve to the same one article, so it surfaced three times in a fortnight and read as a statement about the poems. It wasn't. The fix: `distill` now emits a short searchable `term` alongside the prose, and every source queries the term.
+>
+> Still open, deliberately: the distiller reaches for the same lexicon regardless of poem — across twelve unlike poems, *kenosis* appeared in 6, *Simone Weil* in 5, *Paul Celan* in 4. That is a taste problem in `prompts/distill.md`, and it should be judged against a working pool, not this one.
+
 ---
 
 ## 6. Image rendering constraints + layout

@@ -60,7 +60,11 @@ enabled = true
 model = "claude-sonnet-4-6"
 distill_prompt = "prompts/distill.md"
 rank_prompt = "prompts/rank.md"
-sources = ["poetrydb", "wikipedia", "wiktionary", "met", "aic", "rijksmuseum"]
+sources = ["poetrydb", "wikipedia", "wiktionary", "met", "aic", "cma"]
+                             # cma = Cleveland Museum of Art. It replaced "rijksmuseum":
+                             # that keyless endpoint is now a bare Linked-Art listing that
+                             # rejects `q` and carries no titles or images, so it had been
+                             # silently contributing nothing.
 candidates_per_source = 3
 companion_image_path = "out/companion.png"
 companion_json_path  = "out/companion.json"
@@ -68,3 +72,7 @@ image_mud_threshold  = 0.90  # reject image if black+white combined > this fract
 server_host = "0.0.0.0"      # button server bind address (0.0.0.0 = reachable on the LAN)
 server_port = 8080           # a button hits http://<pi>:8080/companion (or /toggle)
 current_page_path = "out/current_page"  # which page is showing (poem|companion); drives /toggle
+history_path = "out/companion-history.json"  # rolling record of what has already been shown
+history_size = 30            # exclude the last N companions from the pool. 0 disables.
+                             # Companions only — a poem resurfacing to find a *different*
+                             # companion stays a feature.
