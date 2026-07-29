@@ -10,7 +10,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from .base import Poem, is_index_title
+from .base import Poem, daily_pick, is_index_title
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -89,5 +89,5 @@ class LocalSource:
         candidates = sorted(p for p in self.directory.glob("*") if p.suffix in {".md", ".json"})
         if not candidates:
             raise FileNotFoundError(f"No .md/.json poems in {self.directory}")
-        idx = day.toordinal() % len(candidates)  # deterministic, rotates daily
+        idx = daily_pick([str(p) for p in candidates], day)  # shuffled deck, one per day
         return load_file(candidates[idx])

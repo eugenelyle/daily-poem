@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 from datetime import date
 
-from .base import Poem, is_index_title
+from .base import Poem, daily_pick, is_index_title
 
 API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
@@ -173,7 +173,9 @@ class NotionSource:
         pages = self._paginate("POST", f"/databases/{self.database_id}/query", {"page_size": 100})
         if self.status_in:
             pages = [p for p in pages if _prop(p.get("properties", {}), "Status") in self.status_in]
-        # Deterministic order so the daily pick is stable regardless of API ordering.
+        # Stable order so the daily pick doesn't depend on API ordering. This is
+        # only a canonical baseline — `daily_pick` does the shuffling, and must,
+        # because Notion ids sort by creation order and therefore by book.
         pages.sort(key=lambda p: p.get("id", ""))
         return pages
 
@@ -181,6 +183,6 @@ class NotionSource:
         pages = self._eligible_pages()
         if not pages:
             raise LookupError("No eligible poems in the Notion database")
-        page = pages[day.toordinal() % len(pages)]
+        page = pages[daily_pick([p.get("id", "") for p in pages], day)]
         blocks = self._paginate("GET", f"/blocks/{page['id']}/children?page_size=100")
         return page_to_poem(page, blocks)
